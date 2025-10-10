@@ -9,6 +9,19 @@ inputs:
   args:
     description: 'Arguments for the `cargo build <args>` and `cargo makepad <args>` commands. For example, `--release --target x86_64-pc-windows-msvc`.'
 
+  app_name:
+    description: 'The name of the makepad app. If not provided, Mobile will be inferred from `Cargo.toml` name field, Desktop will be inferred from `cargo-packager` product_name field.'
+
+  app_version:
+    description: 'The version of the makepad app. If not provided, it will be inferred from `Cargo.toml` version field.'
+
+  identifier:
+    description: 'The bundle identifier for the app (e.g., com.example.makepadapp).'
+
+  project_path: 
+    description: 'The path to the Makepad project. Defaults to the root of the repository.'
+    default: '.'
+
   include_release:
     description: 'Whether to include the release build (default: true)'
     default: 'true'

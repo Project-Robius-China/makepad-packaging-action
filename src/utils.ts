@@ -2,6 +2,9 @@ import os from "os";
 import { execSync, spawn } from "child_process";
 import type { DesktopBuildDependencies, MobileTarget, TargetArch, TargetInfo, TargetPlatform, TargetPlatformType } from "./types";
 import which from 'which';
+import { readFileSync } from "fs";
+import { join } from "path";
+import { JsonMap, parse as parseToml } from '@iarna/toml';
 
 export function getTargetInfo(triple?: string): TargetInfo {
   let target_platform: TargetPlatform = 
@@ -228,4 +231,17 @@ export async function retry<T>(
     }
   }
   throw lastError;
+}
+
+export function parse_manifest_toml(path: string): JsonMap | null {
+  const contents = readFileSync(join(path, 'Cargo.toml')).toString();
+  try {
+    const config = parseToml(contents);
+    return config;
+  } catch (e) {
+    // @ts-expect-error
+    const msg = e.message;
+    console.error('Error parsing Cargo.toml:', msg);
+    return null;
+  }
 }

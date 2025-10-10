@@ -1,3 +1,5 @@
+import { join } from "path";
+import type { Artifact, BuildOptions, InitOptions, MobileTarget, TargetArch } from "../types";
 import { execCommand, retry } from "../utils";
 
 export type AndroidABI = 
@@ -21,6 +23,13 @@ export interface AndroidBuildOptions {
   keep_sdk_sources?: boolean; // Keep downloaded SDK source files (default is to remove them).
   host_os?: AndroidHostOs;
   variant?: AndroidVariant;
+}
+
+export interface AndroidPackagingConfig {
+  identifier: string; // e.g., com.example.makepadapp
+  product_name: string; // e.g., MakepadApp
+  version: string; // e.g., 1.0.0
+  main_binary_name: string; // e.g., makepad_app
 }
 
 export async function installAndroidBuildDependencies(abi: AndroidABI) {
@@ -54,4 +63,66 @@ export async function installAndroidBuildDependencies(abi: AndroidABI) {
   }
 
   console.log(`✅ Android build dependencies for ABI '${abi}' are installed and verified.`);
+}
+
+export async function buildAndroidArtifacts(
+  root: string,
+  buildOptions: BuildOptions
+): Promise<Artifact[]> {
+  console.log('Building Android artifacts...');
+
+  const { target_info: { arch }, app_name, app_version, identifier, main_binary_name, mode } = buildOptions as {
+    target_info: { arch: TargetArch };
+    app_name: string;
+    app_version: string;
+    identifier: string;
+    main_binary_name: string;
+    mode: 'debug' | 'release';
+  };
+
+  // root/target/makepad-android-apk/<main_binary_name>/apk/
+  const apk_prefix = `${app_name}_v${app_version}_${arch}`;
+  let apk_build_path = join(root, 'target', 'makepad-android-apk', main_binary_name, 'apk');
+
+  if (mode === 'debug') {
+    console.log(' ⚙️  Building Android debug APK...');
+    console.log(' ⚠️  WARNING - compiling a DEBUG build of the application, this creates a very slow and big app. Try adding --release for a fast, or --profile=small for a small build.');
+
+    await execCommand('cargo', [
+      'makepad',
+      'android',
+      '--abi=' + (arch === 'x86_64' ? 'x86_64' : 'aarch64'),
+      '--package-name=' + identifier,
+      '--app-label=' + `${apk_prefix}_debug`,
+      'build',
+      '-p',
+      main_binary_name,
+    ]);
+
+    return [{
+      path: join(apk_build_path, `${apk_prefix}_debug.apk`),
+      mode: 'debug',
+      version: app_version,
+    }]
+  } else {
+    console.log(' ⚙️  Building Android release APK...');
+    
+    await execCommand('cargo', [
+      'makepad',
+      'android',
+      '--abi=' + (arch === 'x86_64' ? 'x86_64' : 'aarch64'),
+      '--package-name=' + identifier,
+      '--app-label=' + apk_prefix,
+      'build',
+      '-p',
+      main_binary_name,
+      '--release',
+    ]);
+
+    return [{
+      path: join(apk_build_path, `${apk_prefix}.apk`),
+      mode: 'release',
+      version: app_version,
+    }];
+  }
 }

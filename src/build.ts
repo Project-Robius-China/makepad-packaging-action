@@ -1,9 +1,12 @@
-import { installAndroidBuildDependencies } from "./builds/android";
-import type { Artifact, BuildOptions, MobileTarget, TargetArch, TargetInfo } from "./types";
+import { buildAndroidArtifacts, installAndroidBuildDependencies } from "./builds/android";
+import { PackagingConfig } from "./config";
+import type { Artifact, BuildOptions, InitOptions, MobileTarget, TargetArch, TargetInfo } from "./types";
 import { execCommand, getTargetInfo, isCommandAvailable, retry } from "./utils";
 
 export async function buildProject(
+  root: string,
   debug: boolean,
+  initOptions: InitOptions,
   buildOptions: BuildOptions,
 ): Promise<Artifact[]> {
   const args = debug
@@ -28,8 +31,14 @@ export async function buildProject(
     ? getTargetInfo(target_triple)
     : getTargetInfo();
 
-  console.log(`======== Build Target Info ========\nTarget platform type: ${target_info.type}\nTarget platform: ${target_info.target_platform} (${target_info.arch})`);
-  
+  buildOptions = { 
+    ...buildOptions, 
+    target_info, 
+    mode: debug ? 'debug' : 'release',
+  };
+
+  console.log(`======== Build Target Info ========\nTarget platform type: ${target_info.type}\nTarget platform: ${target_info.target_platform} (${target_info.arch})\n===================================`);
+
   const target_platform_type = target_info.type;
   if (target_platform_type === 'desktop') {
     // Desktop build logic
@@ -37,7 +46,7 @@ export async function buildProject(
   } else if (target_platform_type === 'mobile') {
     // Check and install mobile packaging tools.
     await checkAndInstallMobilePackagingTools();
-    return await buildMobileArtifacts(target_info);
+    return await buildMobileArtifacts(root, initOptions, buildOptions);
   } else {
     throw new Error(`Unsupported target type: ${target_platform_type}`);
   }
@@ -104,14 +113,31 @@ async function buildDesktopArtifacts(): Promise<Artifact[]> {
   return [];
 }
 
-async function buildMobileArtifacts(target_info: TargetInfo): Promise<Artifact[]> {
+async function buildMobileArtifacts(root: string, initOptions: InitOptions, buildOptions: BuildOptions): Promise<Artifact[]> {
   console.log('Building for mobile...');
-  const { target_platform, arch } = target_info as { target_platform: MobileTarget, arch: TargetArch };
-  
+
+  const { android_config } = PackagingConfig.fromMobilePackagingConfig(root);
+
+  const { target_info: { target_platform, arch } } = buildOptions as {
+    target_info: { target_platform: MobileTarget; arch: TargetArch };
+  };
+
   if (target_platform === 'android') {
+
+    const { app_version, app_name, identifier, main_binary_name } = initOptions;
+
+    buildOptions.app_version = app_version ?? android_config.version;
+    buildOptions.app_name = app_name ?? android_config.product_name;
+    buildOptions.identifier = identifier ?? android_config.identifier;
+    buildOptions.main_binary_name = main_binary_name ?? android_config.main_binary_name;
+
     // Ensure Android build dependencies are installed
     await installAndroidBuildDependencies(arch);
-    return [];
+
+    return await buildAndroidArtifacts(
+      root,
+      buildOptions
+    );
   }
 
   if (target_platform === 'ios') {

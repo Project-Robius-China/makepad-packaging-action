@@ -1,5 +1,25 @@
+export interface ManifestToml {
+  package: {
+    name: string;
+    version: string;
+  }
+}
+
 export interface BuildOptions {
   args: string[] | null;
+  target_info?: TargetInfo;
+  mode?: 'debug' | 'release';
+  app_name?: string;
+  app_version?: string;
+  identifier?: string;
+  main_binary_name?: string;
+}
+
+export interface InitOptions {
+  identifier?: string; // e.g., com.example.makepadapp
+  app_name?: string; // e.g., MakepadApp
+  app_version?: string; // e.g., 1.0.0
+  main_binary_name?: string; // e.g., makepad_app
 }
 
 export interface Artifact {
