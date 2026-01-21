@@ -291,9 +291,6 @@ async function ensureRelease(params: {
   };
 
   const ensureTagRef = async (): Promise<'created' | 'exists' | 'skipped'> => {
-    if (!draft) {
-      return 'skipped';
-    }
     const ref = tagName.startsWith('refs/tags/') ? tagName : `refs/tags/${tagName}`;
     try {
       await octokit.rest.git.createRef({
