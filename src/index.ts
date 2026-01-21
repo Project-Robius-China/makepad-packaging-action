@@ -255,20 +255,24 @@ async function ensureRelease(params: {
     }
   };
 
+  const listReleasesByTag = async (): Promise<ReleaseSummary[]> => {
+    const releases = await octokit.paginate(octokit.rest.repos.listReleases, {
+      owner,
+      repo,
+      per_page: 100,
+    });
+    return releases
+      .filter((release) => release.tag_name === tagName)
+      .map((release) => mapRelease(release));
+  };
+
   const findReleaseByTag = async (): Promise<ReleaseSummary | null> => {
     const direct = await getReleaseByTag();
     if (direct) {
       return direct;
     }
 
-    const releases = await octokit.paginate(octokit.rest.repos.listReleases, {
-      owner,
-      repo,
-      per_page: 100,
-    });
-    const matches = releases
-      .filter((release) => release.tag_name === tagName)
-      .map((release) => mapRelease(release));
+    const matches = await listReleasesByTag();
 
     if (matches.length === 0) {
       return null;
@@ -284,6 +288,61 @@ async function ensureRelease(params: {
     }
 
     return matches[0];
+  };
+
+  const ensureTagRef = async (): Promise<'created' | 'exists' | 'skipped'> => {
+    if (!draft) {
+      return 'skipped';
+    }
+    const ref = tagName.startsWith('refs/tags/') ? tagName : `refs/tags/${tagName}`;
+    try {
+      await octokit.rest.git.createRef({
+        owner,
+        repo,
+        ref,
+        sha: github.context.sha,
+      });
+      return 'created';
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 422) {
+        try {
+          const lookup = tagName.startsWith('refs/tags/')
+            ? tagName.replace('refs/', '')
+            : `tags/${tagName}`;
+          await octokit.rest.git.getRef({ owner, repo, ref: lookup });
+          return 'exists';
+        } catch (lookupError) {
+          const lookupStatus = (lookupError as { status?: number }).status;
+          if (lookupStatus === 404) {
+            core.warning(`Failed to create tag ref ${ref}; continuing without tag lock.`);
+            return 'skipped';
+          }
+          throw lookupError;
+        }
+      }
+      throw error;
+    }
+  };
+
+  const sortByCreatedAt = (releases: ReleaseSummary[]): ReleaseSummary[] => {
+    return releases.sort((a, b) => {
+      const aTime = a.created_at ? Date.parse(a.created_at) : 0;
+      const bTime = b.created_at ? Date.parse(b.created_at) : 0;
+      return aTime - bTime;
+    });
+  };
+
+  const resolveCanonicalRelease = async (): Promise<ReleaseSummary | null> => {
+    const matches = await listReleasesByTag();
+    if (matches.length === 0) {
+      return null;
+    }
+    if (matches.length > 1) {
+      core.warning(`Multiple releases found for tag ${tagName}; using the earliest one.`);
+    }
+    const sorted = sortByCreatedAt(matches);
+    return sorted[0];
   };
 
   const existing = await findReleaseByTag();
@@ -304,6 +363,34 @@ async function ensureRelease(params: {
     });
 
     return { id: updated.data.id, html_url: updated.data.html_url };
+  }
+
+  const tagLock = await ensureTagRef();
+  if (tagLock === 'exists') {
+    const waited = await retry(async () => {
+      const release = await findReleaseByTag();
+      if (!release) {
+        throw new Error('Release not visible yet.');
+      }
+      return release;
+    }, 5, 1000).catch(() => null);
+    if (waited) {
+      const shouldUpdate = Boolean(releaseName || releaseBody);
+      if (!shouldUpdate) {
+        return { id: waited.id, html_url: waited.html_url };
+      }
+
+      const updated = await octokit.rest.repos.updateRelease({
+        owner,
+        repo,
+        release_id: waited.id,
+        name: releaseName || waited.name || tagName,
+        body: releaseBody ?? waited.body ?? undefined,
+        draft: waited.draft,
+        prerelease: waited.prerelease,
+      });
+      return { id: updated.data.id, html_url: updated.data.html_url };
+    }
   }
 
   try {
@@ -328,6 +415,28 @@ async function ensureRelease(params: {
       draft,
       prerelease,
     });
+
+    const canonical = await retry(async () => {
+      const resolved = await resolveCanonicalRelease();
+      if (!resolved) {
+        throw new Error('Release not visible yet.');
+      }
+      return resolved;
+    }, 3, 750).catch(() => null);
+
+    if (canonical && canonical.id !== created.data.id) {
+      try {
+        await octokit.rest.repos.deleteRelease({
+          owner,
+          repo,
+          release_id: created.data.id,
+        });
+        core.warning(`Deleted duplicate release ${created.data.id} for tag ${tagName}.`);
+      } catch (deleteError) {
+        core.warning(`Failed to delete duplicate release ${created.data.id}: ${(deleteError as Error).message}`);
+      }
+      return { id: canonical.id, html_url: canonical.html_url };
+    }
 
     return { id: created.data.id, html_url: created.data.html_url };
   } catch (error) {
