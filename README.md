@@ -128,6 +128,7 @@ The action uses `--device=iPhone` for device builds.
 - Resolve app metadata from `Cargo.toml` unless overridden
 - Install packaging tools per target (`cargo-packager`, `cargo-makepad`)
 - Build artifacts and collect outputs into a normalized list
+- Android package names are normalized to valid Java identifiers (e.g. `dora-studio` → `dora_studio`)
 - If `releaseId` provided, upload artifacts to that release (no release creation)
 - If `tagName` provided (and `releaseId` not set), create/update a GitHub Release and upload artifacts
 - Release upload filters to recommended formats per platform when available (e.g. macOS `.dmg`, iOS `.ipa`)

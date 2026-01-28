@@ -84,6 +84,11 @@ export async function buildAndroidArtifacts(
     android_variant?: AndroidVariant;
   };
 
+  const { value: package_identifier, changed: identifier_changed } = sanitizeAndroidPackageName(identifier);
+  if (identifier_changed) {
+    console.warn(`⚠️  Android package name normalized from "${identifier}" to "${package_identifier}".`);
+  }
+
   const resolved_abi = resolveAndroidAbi(android_abi, arch);
   const variant_arg = android_variant && android_variant !== 'default'
     ? [`--variant=${android_variant}`]
@@ -101,7 +106,7 @@ export async function buildAndroidArtifacts(
       'makepad',
       'android',
       `--abi=${resolved_abi}`,
-      '--package-name=' + identifier,
+      '--package-name=' + package_identifier,
       '--app-label=' + `${apk_prefix}_debug`,
       ...variant_arg,
       'build',
@@ -123,7 +128,7 @@ export async function buildAndroidArtifacts(
       'makepad',
       'android',
       `--abi=${resolved_abi}`,
-      '--package-name=' + identifier,
+      '--package-name=' + package_identifier,
       '--app-label=' + apk_prefix,
       ...variant_arg,
       'build',
@@ -154,4 +159,25 @@ function resolveAndroidAbi(requested: AndroidABI | undefined, arch: TargetArch):
   }
 
   return resolved;
+}
+
+function sanitizeAndroidPackageName(identifier: string): { value: string; changed: boolean } {
+  const original = identifier;
+  const parts = identifier
+    .split('.')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      let normalized = part.replace(/-/g, '_').replace(/[^A-Za-z0-9_]/g, '_');
+      if (!normalized) {
+        normalized = 'app';
+      }
+      if (!/^[A-Za-z]/.test(normalized)) {
+        normalized = `app_${normalized}`;
+      }
+      return normalized.toLowerCase();
+    });
+
+  const sanitized = parts.length > 0 ? parts.join('.') : 'org.makepad.app';
+  return { value: sanitized, changed: sanitized !== original };
 }
