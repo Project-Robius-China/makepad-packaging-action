@@ -862,6 +862,13 @@ async function uploadReleaseAssets(params: {
     core.info(`Filtered artifacts for release upload: ${filteredArtifacts.length}/${artifacts.length} selected.`);
   }
 
+  const missingArtifacts = filteredArtifacts
+    .filter((artifact) => !existsSync(artifact.path))
+    .map((artifact) => artifact.path);
+  if (missingArtifacts.length > 0) {
+    throw new Error(`Missing artifacts on disk:\n${missingArtifacts.join('\n')}`);
+  }
+
   const existingAssets = await octokit.rest.repos.listReleaseAssets({
     owner,
     repo,
@@ -875,11 +882,6 @@ async function uploadReleaseAssets(params: {
   const usedNames = new Set<string>();
 
   for (const artifact of filteredArtifacts) {
-    if (!existsSync(artifact.path)) {
-      core.warning(`Artifact not found on disk: ${artifact.path}`);
-      continue;
-    }
-
     let uploadPath = artifact.path;
     const stat = statSync(uploadPath);
     if (stat.isDirectory()) {
